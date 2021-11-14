@@ -1,0 +1,180 @@
+#!/bin/bash
+
+TIMEOUT=300
+DEFAULT_WARNING_LIMIT=7
+DEFAULT_START_TASK_MIN='00'
+DEFAULT_START_TASK_HOUR='07'
+MAXTRYNBR=5
+
+GESYSLOG="/usr/g/service/log/gesys.log"
+GESYSLOG="./gesyslog.log"
+
+MESSAGE='<span font="14">System has not been rebooted for %u days,\n reboot when possible.</span>'
+LOGMSG='[UPTIME] Warning: uptime = '
+SYSTEMISSCANNINGMSG="[EXAMINATION]: System is in scanning mode, check again in $TIMEOUT s. "
+NEXTTRYMSG="System is busy, "
+MAXTRYEXC="I did try for $MAXTRYNMBR times to infrom user and the system is still busy. I will try to interact user next day. Enough for today..."
+
+LOGNOTEXIT="[GESYSLOG]: $GESYSLOG not found."
+SCRPTNAME=$(echo "$0" | sed 's/[\/\.]*//')
+CRONTASK="{MIN} {HOUR} * * * $(pwd)/$SCRPTNAME"
+LIMIT=$DEFAULT_WARNING_LIMIT
+DAYSLIMIT=$DEFAULT_WARNING_LIMIT
+INST=false
+DEINST=false
+FORCE=false
+
+trynbr=0
+
+usage (){
+
+cat << EOF
+
+ $SCRPTNAME - Display warning window and log (system logfile) if system has not been rebooted for 7 days or more.  
+ Executed with parmeters can install a regular cron task with defined execution time once a day. 
+
+Usage:
+
+ $SCRPTNAME [options]
+
+Options:
+ -H   	Define execution hour for cron task $DEFAULT_START_TASK_HOUR
+ -M     Define execution minutes for cron task $DEFAULT_START_TASK_MIN
+ -D     Days without reboot to display warning $DEFAULT_WARNING_LIMIT
+ -i     Install cron task, bakup original crontab into a file ${SCRPTNAME}_crontab_{DATE}.bak (crontab -l)
+ -r     Remove all cron tasks  $SCRPTNAME
+ -f		force display warning even scanner is not in IDLE state
+ $SCRPTNAME 
+	warn user if system has not been rebooted $DEFAULT_WARNING_LIMIT
+ 
+ $SCRPTNAME -D 10 
+	warn user if system has not been rebooted for 10 days
+
+ $SCRPTNAME -i -D 10
+	define a cron task 
+	
+ $SCRPTNAME -i -D 5 -H 6 -M 30
+	define a cron task with execution time 6:30 and warning 5 days of no reboot
+
+
+EOF
+exit 1
+
+}
+
+is_idle () {
+
+	if [[ ! -f $GESYSLOG ]]; then
+		logmsg="$LOGNOTEXIT. Uptime: "$(uptime)"\n"
+		logger "$logmsg"
+		exit 4
+	fi
+	echo false
+	return
+	is_examEnded = $(egrep -i "prospective exam|200109110|200109109" $GESYSLOG | tail -n 1| grep -i end| wc -l)
+	if [[ $is_examEnded == 0 ]]; then
+		return false
+	else 
+		return true
+	fi
+}
+
+install_scr () {
+	iscrontask=$(crontab -l | grep -c "$SCRPTNAME")
+	if  [[ $iscrontask -lt 1 ]]
+		then 
+		echo 'cron task is not defined.'
+		if [[ $DEFAULT_WARNING_LIMIT -ne $LIMIT ]] && [[ $LIMIT =~ ^[0-9]+$ ]]
+		then
+			CRONTASK="$CRONTASK -d $LIMIT"
+		fi
+		CRONTASK=$(echo "$CRONTASK" | sed "s/{MIN}/$DEFAULT_START_TASK_MIN/")
+		CRONTASK=$(echo "$CRONTASK" | sed "s/{HOUR}/$DEFAULT_START_TASK_HOUR/")
+		echo "Define a new crontask: $CRONTASK"
+		echo "Would you like to continue? yN"
+		read -n 1 accept <&1
+		if ! [[ $accept = 'y' ]] ; then
+	        	echo ''	
+			echo 'Aborting installation.'
+			echo 'Exiting program'
+			exit 1
+		fi
+		echo 'continue installation'
+		dtime=$(date +%F_%H%M%S)
+		filename="./${SCRPTNAME}_crontab_$dtime.bak"
+		echo "Save original crontab tasks to file $filename"
+		crontab -l > "$filename"
+		echo "Adding new task $CRONTASK"
+		(crontab -l 2>/dev/null| egrep -v  "^# [D(].*" ; echo "$CRONTASK")| crontab -
+		echo 'Exit the script.'
+		exit 1
+	else
+		echo "$SCRPTNAME is already installed."
+		echo 'Exit programm'
+		exit 1
+	fi
+}
+
+deinstall () {
+	echo "Removing $SCRPTNAME from crontab"
+	echo "It will remove all records for $SCRPTNAME from corntab"
+	echo "Are you sure you want to continue? yN"
+	read -n 1 accept <&1
+	if ! [[ $accept = 'y' ]] ; then
+	        echo ''	
+		echo 'Aborting deinstallation.'
+		echo 'Exiting program'
+		exit 1
+	fi
+	echo ''
+	(crontab -l 2>/dev/null | egrep -v "$SCRPTNAME|(^# [D(].*)" )| crontab -
+	echo "Deinstalltion is completed."
+	exit 2
+}
+
+while getopts D:H:M:r:hirf flag
+do
+	case ${flag} in
+		D)  [[ ${OPTARG} =~ ^[0-9]+$ ]]  && DAYSLIMIT=${OPTARG} || ( echo "Wrong parameter ${OPTARG}"; DAYSLIMIT=${LIMIT} ) ;;
+		H)  [[ ${OPTARG} =~ ^[0-9]+$ ]]  && DEFAULT_START_TASK_HOUR=${OPTARG} || echo "Wrong parameter ${OPTARG}"  ;;
+		M)  [[ ${OPTARG} =~ ^[0-9]+$ ]]  && DEFAULT_START_TASK_MIN="${OPTARG}" || echo "Wrong parameter ${OPTARG}";;
+		r)  trynbr=${OPTARG} ;;
+		i) INST=true ;;
+		r) DEINST=true ;;
+		f) FORCE=true ;;
+		h) usage ;;
+	esac
+done 
+
+if $INST ; then
+	install_scr
+fi
+
+if $DEINST ; then 
+	deinstall 
+fi 
+
+set -x
+
+# check the number of recursion
+up=`uptime | egrep -o '([0-9]+)\sday[s]?' | gawk '{print $1 }'`
+if  [[ $up -ge "$DAYSLIMIT" ]]; then
+	idl=$(is_idle)
+	if [  $idl  == false ] && [ $FORCE == false ]  ; then
+		logmsg="$SYSTEMISSCANNINGMSG. Up days: "$up"\n"
+		logger "$logmsg"
+		if [[ $trynbr -le $MAXTRYNBR ]]; then
+			echo onemoretry
+			#(sleep $TIMEOUT; $SCRPTNAME -D $DAYSLIMIT)&
+		else
+			logmsg="$SYSTEMISSCANNINGMSG. Updays: "$up"\n"
+			logger "$logmsg"
+		fi
+		exit 3
+	fi
+
+	MSG=$(printf "$MESSAGE" $up)
+	logmsg="$LOGMSG"$(uptime)"\n"
+	logger "$logmsg"
+	zenity --title="$SCRPTNAME" --warning --text="$MSG" --display=:0 --width=400 --height=300 
+fi
