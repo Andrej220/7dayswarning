@@ -1,5 +1,6 @@
 #!/bin/bash
 
+
 TIMEOUT=300
 DEFAULT_WARNING_LIMIT=7
 DEFAULT_START_TASK_MIN='00'
@@ -9,11 +10,6 @@ MAXTRYNBR=5
 GESYSLOG="/usr/g/service/log/gesys.log"
 GESYSLOG="./gesyslog.log"
 
-MESSAGE='<span font="14">System has not been rebooted for %u days,\n reboot when possible.</span>'
-LOGMSG='[UPTIME] Warning: uptime = '
-SYSTEMISSCANNINGMSG="[EXAMINATION]: System is in scanning mode, check again in $TIMEOUT s. "
-NEXTTRYMSG="System is busy, "
-MAXTRYEXC="I did try for $MAXTRYNMBR times to infrom user and the system is still busy. I will try to interact user next day. Enough for today..."
 
 LOGNOTEXIT="[GESYSLOG]: $GESYSLOG not found."
 SCRPTNAME=$(echo "$0" | sed 's/[\/\.]*//')
@@ -23,6 +19,13 @@ DAYSLIMIT=$DEFAULT_WARNING_LIMIT
 INST=false
 DEINST=false
 FORCE=false
+
+MESSAGE='<span font="14">System has not been rebooted for %u days,\n reboot when possible.</span>'
+#log messages 
+LOGMSG="[$SCRPTNAME]: Warning: uptime = "
+SYSTEMISSCANNINGMSG="[$SCRPTNAME]: System is in scanning mode, check again in $TIMEOUT s. "
+NEXTTRYMSG="[$SCRPTNAME]: System is busy, "
+MAXTRYEXC="[$SCRPTNAME]: I did try for $MAXTRYNMBR times to infrom user but the system is still busy. I will try to interact user next day. Enough for today..."
 
 trynbr=0
 
@@ -164,11 +167,10 @@ if  [[ $up -ge "$DAYSLIMIT" ]]; then
 		logmsg="$SYSTEMISSCANNINGMSG. Up days: "$up"\n"
 		logger "$logmsg"
 		if [[ $trynbr -le $MAXTRYNBR ]]; then
-			echo onemoretry
-			#(sleep $TIMEOUT; $SCRPTNAME -D $DAYSLIMIT)&
+			$trynbr=$trynbr+1
+			(sleep $TIMEOUT; $SCRPTNAME -D $DAYSLIMIT -r $trynbr)&
 		else
-			logmsg="$SYSTEMISSCANNINGMSG. Updays: "$up"\n"
-			logger "$logmsg"
+			logger $MAXTRYEXC
 		fi
 		exit 3
 	fi
